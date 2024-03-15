@@ -1,0 +1,24 @@
+{
+  "name": "google-form-file-to-gcs",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:push": "vite build && clasp push",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/google-apps-script": "^1.0.82",
+    "@types/google-apps-script-oauth2": "^38.0.4",
+    "vite": "^5.1.6",
+    "vite-plugin-singlefile": "^2.0.1"
+  },
+  "dependencies": {
+    "google-auth-library": "^9.7.0"
+  }
+}
