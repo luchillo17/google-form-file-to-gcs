@@ -3,6 +3,44 @@ let serviceAccount: IServiceAccount;
 let storageService: GoogleAppsScriptOAuth2.OAuth2Service;
 let spreadSheet: GoogleAppsScript.Spreadsheet.Spreadsheet;
 
+function installOnFormSubmitSheet() {
+  const triggerPropertyName = "onFormSubmitSheetUniqueId";
+
+  let propTriggerId =
+    PropertiesService.getScriptProperties().getProperty(triggerPropertyName);
+
+  if (propTriggerId) {
+    const trigger = ScriptApp.getProjectTriggers().find(
+      (trigger) => trigger.getUniqueId() === propTriggerId
+    );
+
+    if (trigger) {
+      console.log(
+        `Trigger with the following unique ID already exists: ${propTriggerId}`
+      );
+      return;
+    }
+  }
+
+  // Creates the trigger if one doesn't exist.
+  const sheet = SpreadsheetApp.getActive();
+  const form = FormApp.openByUrl(sheet.getFormUrl());
+  propTriggerId = ScriptApp.newTrigger("onFormSubmitGetResponseRow")
+    .forForm(form)
+    .onFormSubmit()
+    .create()
+    .getUniqueId();
+
+  PropertiesService.getScriptProperties().setProperty(
+    triggerPropertyName,
+    propTriggerId
+  );
+
+  console.log(
+    `Trigger with the following unique ID was created: ${propTriggerId}`
+  );
+}
+
 function getServiceAccountProperty(): IServiceAccount {
   return (
     serviceAccount ??
@@ -77,13 +115,16 @@ function onFormSubmit(event: {
       .filter((item) => item.getItem().getType() === fileType)
       .flatMap((item) => item.getResponse() as string | string[]);
 
-    uploadDriveTo(driveFileIds);
+    uploadDriveTo(event.response, driveFileIds);
   } catch (error) {
     console.error(error);
   }
 }
 
-function uploadDriveTo(driveFileIds: string[]) {
+function uploadDriveTo(
+  response: GoogleAppsScript.Forms.FormResponse,
+  driveFileIds: string[]
+) {
   if (driveFileIds.length <= 0) {
     throw new Error("No files sent in form");
   }
@@ -109,75 +150,64 @@ function uploadDriveTo(driveFileIds: string[]) {
 
   for (let fileId of driveFileIds) {
     const file = DriveApp.getFileById(fileId);
-    const blob = file.getBlob();
-    const bytes = blob.getBytes();
+    // const blob = file.getBlob();
+    // const bytes = blob.getBytes();
 
-    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${formFilesFolder}/${file.getName()}`;
+    // const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${formFilesFolder}/${file.getName()}`;
 
-    console.log("Url: ", url);
+    // console.log("Url: ", url);
 
-    const response = UrlFetchApp.fetch(url, {
-      method: "post",
-      contentType: blob.getContentType(),
-      payload: bytes,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+    // const res = UrlFetchApp.fetch(url, {
+    //   method: "post",
+    //   contentType: blob.getContentType(),
+    //   payload: bytes,
+    //   headers: {
+    //     Authorization: `Bearer ${accessToken}`,
+    //   },
+    // });
 
-    const result: IUploadResponse = JSON.parse(response.getContentText());
+    // const result: IUploadResponse = JSON.parse(res.getContentText());
 
-    console.log("Upload result: ", response.getResponseCode(), result);
+    // Update urls in Sheets
+
+    replaceSheetFileResponse(
+      response.getTimestamp(),
+      file.getUrl()
+      // result.mediaLink
+    );
+    // Delete drive files by ID
+
+    console.log("Upload result: ", res.getResponseCode(), result);
   }
 }
 
 function onFormSubmitGetResponseRow(e) {
-  console.log(e);
-  console.log(e.range);
-  console.log(e.range.getSheet());
+  console.log(Object.keys(e));
+  // console.log(e.range);
+  // console.log(e.range.getSheet());
 }
 
-function installOnFormSubmitSheet() {
-  const triggerPropertyName = "onFormSubmitSheetUniqueId";
+function replaceSheetFileResponse(
+  responseTimestamp: GoogleAppsScript.Base.Date,
+  driveUrl: string,
+  gcsUrl?: string
+) {
+  spreadSheet = spreadSheet ?? SpreadsheetApp.getActive();
+  // Find row by timestamp
+  const sheet = SpreadsheetApp.getActiveSheet();
+  const rows = sheet.getDataRange();
+  const values = rows.getValues();
 
-  let propTriggerId =
-    PropertiesService.getScriptProperties().getProperty(triggerPropertyName);
+  const rangeRowIndex = values.findIndex(
+    (row) => row[0].valueOf() == responseTimestamp.valueOf()
+  );
+  const rowIndex = rows.getRow() + rangeRowIndex;
 
-  if (propTriggerId) {
-    const trigger = ScriptApp.getProjectTriggers().find(
-      (trigger) => trigger.getUniqueId() === propTriggerId
-    );
-
-    if (trigger) {
-      console.log(
-        `Trigger with the following unique ID already exists: ${propTriggerId}`
-      );
-      return;
-    }
-  }
-
-  // Creates the trigger if one doesn't exist.
-  const sheet = SpreadsheetApp.getActive();
-  console.log("Active Spreadsheet: ", sheet);
-  propTriggerId = ScriptApp.newTrigger("onFormSubmitSheet")
-    .forSpreadsheet(sheet)
-    .onFormSubmit()
-    .create()
-    .getUniqueId();
-
-  PropertiesService.getScriptProperties().setProperty(
-    triggerPropertyName,
-    propTriggerId
+  const rowToEdit = sheet.getRange(
+    rowIndex,
+    rows.getColumn(),
+    rows.getLastColumn()
   );
 
-  console.log(
-    `Trigger with the following unique ID was created: ${propTriggerId}`
-  );
+  console.log("Row: ", rowToEdit.getValue());
 }
-
-// function replaceSheetFileResponse(responseRow: number, driveUrl: string, gcsUrl: string) {
-//   spreadSheet = spreadSheet ?? SpreadsheetApp.getActive();
-
-//   spreadSheet.
-
-// }
