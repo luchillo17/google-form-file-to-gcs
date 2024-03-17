@@ -1,7 +1,7 @@
 let token: string;
 let serviceAccount: IServiceAccount;
 let storageService: GoogleAppsScriptOAuth2.OAuth2Service;
-let spreadSheet: GoogleAppsScript.Spreadsheet.Spreadsheet;
+let spreadSheet: GoogleAppsScript.Spreadsheet.Sheet;
 
 function installOnFormSubmitSheet() {
   const triggerPropertyName = "onFormSubmitSheetUniqueId";
@@ -25,7 +25,7 @@ function installOnFormSubmitSheet() {
   // Creates the trigger if one doesn't exist.
   const sheet = SpreadsheetApp.getActive();
   const form = FormApp.openByUrl(sheet.getFormUrl());
-  propTriggerId = ScriptApp.newTrigger("onFormSubmitGetResponseRow")
+  propTriggerId = ScriptApp.newTrigger("onFormSubmit")
     .forForm(form)
     .onFormSubmit()
     .create()
@@ -121,6 +121,41 @@ function onFormSubmit(event: {
   }
 }
 
+function getResponseSheetRow(responseTimestamp: GoogleAppsScript.Base.Date) {
+  spreadSheet = spreadSheet ?? SpreadsheetApp.getActiveSheet();
+
+  // Find row by timestamp
+  const rows = spreadSheet.getDataRange();
+  const values = rows.getValues();
+
+  const rangeRowIndex = values.findIndex(
+    (row) => row[0].valueOf() == responseTimestamp.valueOf()
+  );
+  const rowIndex = rows.getRow() + rangeRowIndex;
+
+  return spreadSheet.getRange(
+    rowIndex,
+    rows.getColumn(),
+    1,
+    rows.getLastColumn()
+  );
+}
+
+function replaceSheetFileResponse(
+  row: GoogleAppsScript.Spreadsheet.Range,
+  driveFile: GoogleAppsScript.Drive.File,
+  gcsUrl: string
+) {
+  const driveCell = row.createTextFinder(driveFile.getId()).findNext();
+
+  if (!driveCell) {
+    throw new Error(`No drive url found with ID ${driveFile.getId()}`);
+  }
+
+  driveCell.setValue(gcsUrl);
+  driveFile.setTrashed(true);
+}
+
 function uploadDriveTo(
   response: GoogleAppsScript.Forms.FormResponse,
   driveFileIds: string[]
@@ -148,66 +183,31 @@ function uploadDriveTo(
     throw new Error("Empty token");
   }
 
+  const responseRow = getResponseSheetRow(response.getTimestamp());
+
   for (let fileId of driveFileIds) {
     const file = DriveApp.getFileById(fileId);
-    // const blob = file.getBlob();
-    // const bytes = blob.getBytes();
+    const blob = file.getBlob();
+    const bytes = blob.getBytes();
 
-    // const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${formFilesFolder}/${file.getName()}`;
+    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${formFilesFolder}/${file.getName()}`;
 
-    // console.log("Url: ", url);
+    console.log("Url: ", url);
 
-    // const res = UrlFetchApp.fetch(url, {
-    //   method: "post",
-    //   contentType: blob.getContentType(),
-    //   payload: bytes,
-    //   headers: {
-    //     Authorization: `Bearer ${accessToken}`,
-    //   },
-    // });
+    const res = UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: blob.getContentType(),
+      payload: bytes,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
-    // const result: IUploadResponse = JSON.parse(res.getContentText());
+    const result: IUploadResponse = JSON.parse(res.getContentText());
 
     // Update urls in Sheets
+    replaceSheetFileResponse(responseRow, file, result.mediaLink);
 
-    replaceSheetFileResponse(
-      response.getTimestamp(),
-      file.getUrl()
-      // result.mediaLink
-    );
-    // Delete drive files by ID
-
-    console.log("Upload result: ", res.getResponseCode(), result);
+    console.log("Drive moved to GCS successfully");
   }
-}
-
-function onFormSubmitGetResponseRow(e) {
-  console.log(Object.keys(e));
-  // console.log(e.range);
-  // console.log(e.range.getSheet());
-}
-
-function replaceSheetFileResponse(
-  responseTimestamp: GoogleAppsScript.Base.Date,
-  driveUrl: string,
-  gcsUrl?: string
-) {
-  spreadSheet = spreadSheet ?? SpreadsheetApp.getActive();
-  // Find row by timestamp
-  const sheet = SpreadsheetApp.getActiveSheet();
-  const rows = sheet.getDataRange();
-  const values = rows.getValues();
-
-  const rangeRowIndex = values.findIndex(
-    (row) => row[0].valueOf() == responseTimestamp.valueOf()
-  );
-  const rowIndex = rows.getRow() + rangeRowIndex;
-
-  const rowToEdit = sheet.getRange(
-    rowIndex,
-    rows.getColumn(),
-    rows.getLastColumn()
-  );
-
-  console.log("Row: ", rowToEdit.getValue());
 }
