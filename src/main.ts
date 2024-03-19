@@ -60,46 +60,17 @@ function getStorageService(): GoogleAppsScriptOAuth2.OAuth2Service {
       .setIssuer(serviceAccount.client_email)
       .setPropertyStore(PropertiesService.getUserProperties())
       .setCache(CacheService.getUserCache())
-      .setTokenUrl("https://oauth2.googleapis.com/token")
+      .setTokenUrl(serviceAccount.token_uri)
       .setScope("https://www.googleapis.com/auth/devstorage.read_write")
   );
 }
 
 function getAccessToken(): string {
-  return token ?? getStorageService().getAccessToken();
-}
+  const storageService = getStorageService();
 
-function getBucketData() {
-  const [bucket, formFilesFolder] = PropertiesService.getScriptProperties()
-    .getProperty("formFilesPath")
-    .split("/");
-
-  if (
-    typeof bucket !== "string" ||
-    typeof formFilesFolder !== "string" ||
-    bucket.trim() === "" ||
-    formFilesFolder.trim() === ""
-  ) {
-    throw new Error(`formFilesPath invalid: ${bucket}, ${formFilesFolder}`);
-  }
-
-  const accessToken = getAccessToken();
-
-  if (typeof accessToken !== "string" || accessToken.trim() === "") {
-    throw new Error("Empty token");
-  }
-
-  const serviceAccount = getServiceAccountProperty();
-
-  const url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o?project=${serviceAccount.project_id}&prefix=${formFilesFolder}`;
-
-  const res = UrlFetchApp.fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const result = JSON.parse(res.getContentText());
-
-  console.log("Result: ", result);
+  return storageService.hasAccess()
+    ? token ?? storageService.getAccessToken()
+    : storageService.getAccessToken();
 }
 
 function onFormSubmit(event: {
@@ -164,9 +135,10 @@ function uploadDriveTo(
     throw new Error("No files sent in form");
   }
 
-  const [bucket, formFilesFolder] = PropertiesService.getScriptProperties()
-    .getProperty("formFilesPath")
-    .split("/");
+  const properties = PropertiesService.getScriptProperties();
+
+  const bucket = properties.getProperty("bucket");
+  const formFilesFolder = properties.getProperty("formFilesPath");
 
   if (
     typeof bucket !== "string" ||
@@ -190,7 +162,9 @@ function uploadDriveTo(
     const blob = file.getBlob();
     const bytes = blob.getBytes();
 
-    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${formFilesFolder}/${file.getName()}`;
+    const filePath = encodeURIComponent(`${formFilesFolder}/${file.getName()}`);
+
+    const url = `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${filePath}`;
 
     console.log("Url: ", url);
 
@@ -205,8 +179,17 @@ function uploadDriveTo(
 
     const result: IUploadResponse = JSON.parse(res.getContentText());
 
+    console.log("Resutl: ", res.getContentText());
+
     // Update urls in Sheets
-    replaceSheetFileResponse(responseRow, file, result.mediaLink);
+    replaceSheetFileResponse(
+      responseRow,
+      file,
+      `https://storage.cloud.google.com/${result.bucket}/${encodeURI(
+        result.name
+      )}`
+    );
+    // replaceSheetFileResponse(responseRow, file, result.mediaLink);
 
     console.log("Drive moved to GCS successfully");
   }
